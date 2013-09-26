@@ -37,6 +37,8 @@
 #include "nsThreadUtils.h"
 #include "nsRadioInterfaceLayer.h"
 #include "WifiWorker.h"
+#include "nsIIccService.h"
+#include "IccService.h"
 
 USING_WORKERS_NAMESPACE
 
@@ -341,6 +343,14 @@ SystemWorkerManager::Init()
     return rv;
   }
 
+  nsCOMPtr<nsIIccService> iccService = do_GetService("@mozilla.org/icc/service;1");
+  if (!iccService) {
+    NS_WARNING("Failed to get icc service!");
+  }
+  else {
+    iccService->Start();
+  }
+
 #ifdef MOZ_WIDGET_GONK
   InitAutoMounter();
   InitializeTimeZoneSettingObserver();
@@ -372,6 +382,11 @@ SystemWorkerManager::Shutdown()
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
 
   mShutdown = true;
+
+  nsCOMPtr<nsIIccService> iccService = do_GetService("@mozilla.org/icc/service;1");
+  if (iccService) {
+    iccService->Shutdown();
+  }
 
 #ifdef MOZ_WIDGET_GONK
   ShutdownAutoMounter();

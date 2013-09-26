@@ -1,0 +1,16 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include "nsISupports.idl"
+
+%{C++
+#define NS_ICCSERVICE_CID { 0x5c47a5a2, 0xec8c, 0x4b80, {0x82, 0xd5, 0x08, 0xbc, 0xfc, 0xfd, 0xa1, 0xfe} }
+#define NS_ICCSERVICE_CONTRACTID "@mozilla.org/icc/service;1"
+%}
+
+[scriptable, uuid(9618069e-a229-499b-be50-6c37da8a4dc7)]
+interface nsIIccService : nsISupports {
+  void start();
+  void shutdown();
+};

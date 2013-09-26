@@ -10,6 +10,7 @@ XPIDL_SOURCES += [
     'nsIDOMIccInfo.idl',
     'nsIDOMIccManager.idl',
     'nsIIccProvider.idl',
+    'nsIIccService.idl',
 ]
 
 XPIDL_MODULE = 'dom_icc'

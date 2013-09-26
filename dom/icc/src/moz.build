@@ -5,11 +5,13 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 EXPORTS.mozilla.dom.icc += [
+    'IccService.h',
     'StkCommandEvent.h',
 ]
 
 CPP_SOURCES += [
     'IccManager.cpp',
+    'IccService.cpp',
     'StkCommandEvent.cpp',
 ]
 

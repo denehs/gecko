@@ -224,12 +224,14 @@ static void Shutdown();
 #include "nsIAlarmHalService.h"
 #include "nsIMediaManager.h"
 #include "nsMixedContentBlocker.h"
+#include "nsIIccService.h"
 
 #include "AudioChannelService.h"
 
 #include "mozilla/dom/power/PowerManagerService.h"
 #include "mozilla/dom/alarm/AlarmHalService.h"
 #include "mozilla/dom/time/TimeService.h"
+#include "mozilla/dom/icc/IccService.h"
 
 #include "mozilla/dom/telephony/TelephonyFactory.h"
 #include "nsITelephonyProvider.h"
@@ -251,6 +253,7 @@ using mozilla::dom::TCPSocketChild;
 using mozilla::dom::TCPSocketParent;
 using mozilla::dom::TCPServerSocketChild;
 using mozilla::dom::time::TimeService;
+using mozilla::dom::icc::IccService;
 
 // Transformiix
 /* 5d5d92cd-6bf8-11d9-bf4a-000a95dc234c */
@@ -328,6 +331,8 @@ NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIAlarmHalService,
                                          AlarmHalService::GetInstance)
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsITimeService,
                                          TimeService::GetInstance)
+NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(IccService,
+                                         IccService::FactoryCreate)
 #ifdef MOZ_GAMEPAD
 using mozilla::dom::GamepadServiceTest;
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(GamepadServiceTest,
@@ -787,6 +792,7 @@ NS_DEFINE_NAMED_CID(NS_SECURITYNAMESET_CID);
 NS_DEFINE_NAMED_CID(THIRDPARTYUTIL_CID);
 NS_DEFINE_NAMED_CID(NS_STRUCTUREDCLONECONTAINER_CID);
 NS_DEFINE_NAMED_CID(NS_DEVICE_SENSORS_CID);
+NS_DEFINE_NAMED_CID(NS_ICCSERVICE_CID);
 
 #ifndef MOZ_WIDGET_GONK
 #if defined(ANDROID)
@@ -1104,6 +1110,7 @@ static const mozilla::Module::CIDEntry kLayoutCIDs[] = {
   { &kNS_ACCESSIBILITY_SERVICE_CID, false, NULL, CreateA11yService },
 #endif
   { &kTELEPHONY_PROVIDER_CID, false, NULL, nsITelephonyProviderConstructor },
+  { &kNS_ICCSERVICE_CID, false, NULL, IccServiceConstructor },
   { NULL }
 };
 
@@ -1261,6 +1268,7 @@ static const mozilla::Module::ContractIDEntry kLayoutContracts[] = {
   { "@mozilla.org/accessibleRetrieval;1", &kNS_ACCESSIBILITY_SERVICE_CID },
 #endif
   { TELEPHONY_PROVIDER_CONTRACTID, &kTELEPHONY_PROVIDER_CID },
+  { "@mozilla.org/icc/service;1", &kNS_ICCSERVICE_CID },
   { NULL }
 };
 
