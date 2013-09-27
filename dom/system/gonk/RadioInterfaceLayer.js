@@ -3104,6 +3104,12 @@ RadioInterface.prototype = {
     this.workerMessenger.send(rilMessageType, message, function (response) {
       return callback.handleResponse(response);
     });
+  },
+
+  isCardPresent: function isCardPresent() {
+    return this.rilContext.cardState !== RIL.GECKO_CARDSTATE_ABSENT &&
+      this.rilContext.cardState !== RIL.GECKO_CARDSTATE_NOT_READY &&
+      this.rilContext.cardState !== RIL.GECKO_CARDSTATE_UNKNOWN;
   }
 };
 

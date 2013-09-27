@@ -10,6 +10,7 @@
 #include "nsXULAppAPI.h"
 #include "jsapi.h"
 #include "nsCxPusher.h"
+#include "nsIRadioInterfaceLayer.h"
 
 #undef LOG_TAG
 #define LOG_TAG "IccService"
@@ -193,17 +194,32 @@ IccService::DispatchRILCommand(char *aMsg, int aLen)
   MOZ_ASSERT(NS_IsMainThread());
   LOGI("DispatchRILCommand");
 
-  char command[20];
-  strcpy (command, aMsg);
-  if (strcmp(command, ICC_IPC_COMMAND_CARD_PRESENT) == 0) {
-    LOGI("process card present");
-    uint8_t cardPresent = 1;
+  nsCOMPtr<nsIRadioInterfaceLayer> ril = do_GetService("@mozilla.org/ril;1");
+  nsIRadioInterface *radioInterface;
+  if (ril) {
+    // TODO: multi-sim
+    ril->GetRadioInterface(0, &radioInterface);
+    if (radioInterface) {
+      char command[20];
+      strcpy (command, aMsg);
+      if (strcmp(command, ICC_IPC_COMMAND_CARD_PRESENT) == 0) {
+        LOGI("process card present");
+        uint8_t cardPresent;
+        radioInterface->IsCardPresent((bool *)&cardPresent);
 
-    nsCOMPtr<nsIRunnable> runnable = new ReplyRunnable((char *)&cardPresent, 1);
-    mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
+        nsCOMPtr<nsIRunnable> runnable = new ReplyRunnable((char *)&cardPresent, 1);
+        mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
+      }
+      else {
+        LOGI("unimplemented command: %s", command);
+      }
+    }
+    else {
+      LOGI("can't get nsIRadioInterface");
+    }
   }
   else {
-    LOGI("unimplemented command: %s", command);
+    LOGI("can't get nsIRadioInterfaceLayer");
   }
 
   nsCOMPtr<nsIRunnable> runnable = new EventRunnable();

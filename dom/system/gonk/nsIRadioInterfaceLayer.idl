@@ -84,7 +84,7 @@ interface nsIRilSendWorkerMessageCallback : nsISupports
   boolean handleResponse(in jsval response);
 };
 
-[scriptable, uuid(61a8ca67-6113-4cd0-b443-e045f09863ed)]
+[scriptable, uuid(d57182be-c612-44b2-b381-dfb1230d0378)]
 interface nsIRadioInterface : nsISupports
 {
   readonly attribute nsIRilContext rilContext;
@@ -115,6 +115,8 @@ interface nsIRadioInterface : nsISupports
   void sendWorkerMessage(in DOMString type,
               [optional] in jsval message,
               [optional] in nsIRilSendWorkerMessageCallback callback);
+
+  boolean isCardPresent();
 };
 
 [scriptable, uuid(44b03951-1444-4c03-bd37-0bcb3a01b56f)]
