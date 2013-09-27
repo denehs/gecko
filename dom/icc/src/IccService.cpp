@@ -3,8 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include <unistd.h>
-#include <sys/socket.h>
-#include <sys/un.h>
 #include "IccService.h"
 #include "nsServiceManagerUtils.h"
 #include "mozilla/ModuleUtils.h"
@@ -35,7 +33,7 @@ StaticRefPtr<IccService> gIccService;
 class RILCommandDispatcher : public nsRunnable
 {
 public:
-  RILCommandDispatcher(nsAString& aCommand): mCommand(aCommand)
+  RILCommandDispatcher(char *aMsg, int aLen): mMsg(aMsg), mLen(aLen)
   {
     MOZ_ASSERT(!NS_IsMainThread());
   }
@@ -43,12 +41,13 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
-    gIccService->DispatchRILCommand(mCommand);
+    gIccService->DispatchRILCommand(mMsg, mLen);
     return NS_OK;
   }
 
 private:
-  nsString mCommand;
+  char * mMsg;
+  int mLen;
 };
 
 // Runnable used to call WaitForEvent on the event thread.
@@ -63,57 +62,30 @@ public:
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(!NS_IsMainThread());
-
-    struct sockaddr_un addr, from;
-    char buff[MAX_RESPONSE_SIZE+1];
-    socklen_t fromlen = sizeof(from);
-
-    mFd = socket(PF_UNIX, SOCK_DGRAM, 0);
-    if (mFd < 0) {
-      LOGI("socket error");
-      return NS_OK;
-    }
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    strcpy(addr.sun_path, SERVER_SOCK_FILE);
-    unlink(SERVER_SOCK_FILE);
-
-    if (bind(mFd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-      LOGI("bind error");
-      return NS_OK;
-    }
-
-    LOGI("start listening...");
-    int len;
-    while ((len = recvfrom(mFd, buff, MAX_RESPONSE_SIZE+1, 0, (struct sockaddr *)&from, &fromlen)) > 0) {
-      char command[20];
-      strcpy (command, buff);
-      LOGI ("recvfrom: %d", len);
-
-      if (strcmp(command, ICC_IPC_COMMAND_CARD_PRESENT) == 0) {
-        LOGI("process card present");
-        *((uint8_t*)buff) = 1;
-        sendto(mFd, buff, 1, 0, (struct sockaddr *)&from, fromlen);  
-      }
-      else {
-        LOGI("unimplemented command: %s", command);
-      }
-      
-    }
-
-    /*
-    nsAutoString event;
-    gWpaSupplicant->WaitForEvent(event);
-    if (!event.IsEmpty()) {
-      nsCOMPtr<nsIRunnable> runnable = new WifiEventDispatcher(event);
-      NS_DispatchToMainThread(runnable);
-    }*/
+    gIccService->WaitForEvent();
     return NS_OK;
   }
 private:
-  int mFd;
 };
 
+class ReplyRunnable : public nsRunnable
+{
+public:
+  ReplyRunnable(char *aMsg, int aLen): mMsg(aMsg), mLen(aLen)
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+  }
+
+  NS_IMETHOD Run()
+  {
+    MOZ_ASSERT(!NS_IsMainThread());
+    gIccService->Reply(mMsg, mLen);
+    return NS_OK;
+  }
+private:
+  char * mMsg;
+  int mLen;
+};
 
 NS_IMPL_ISUPPORTS1(IccService, nsIIccService)
 
@@ -156,10 +128,54 @@ IccService::Start()
     NS_WARNING("Can't create icc event thread");
     return NS_ERROR_FAILURE;
   }
+  StartListen(); // TODO: check return value
   nsCOMPtr<nsIRunnable> runnable = new EventRunnable();
   mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
 
   return NS_OK;
+}
+
+NS_IMETHODIMP
+IccService::StartListen()
+{
+  struct sockaddr_un addr;
+  mFromLen = sizeof(mFrom);
+
+  mFd = socket(PF_UNIX, SOCK_DGRAM, 0);
+  if (mFd < 0) {
+    LOGI("socket error");
+    return NS_OK;
+  }
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_UNIX;
+  strcpy(addr.sun_path, SERVER_SOCK_FILE);
+  unlink(SERVER_SOCK_FILE);
+
+  if (bind(mFd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    LOGI("bind error");
+    return NS_OK;
+  }
+
+  LOGI("start listening...");
+  return NS_OK;
+}
+
+void
+IccService::WaitForEvent()
+{
+  char buff[MAX_RESPONSE_SIZE+1];
+  int len;
+  if ((len = recvfrom(mFd, buff, MAX_RESPONSE_SIZE+1, 0, (struct sockaddr *)&mFrom, &mFromLen)) > 0) {
+    LOGI ("recvfrom: %d", len);
+    ProcessMessage(buff, len);
+  }
+}
+
+void
+IccService::ProcessMessage(char *aMsg, int aLen)
+{
+  nsCOMPtr<nsIRunnable> runnable = new RILCommandDispatcher(aMsg, aLen);
+  NS_DispatchToMainThread(runnable);
 }
 
 NS_IMETHODIMP
@@ -171,11 +187,36 @@ IccService::Shutdown()
   return NS_OK;
 }
 
-
 void
-IccService::DispatchRILCommand(const nsAString& aCommand)
+IccService::DispatchRILCommand(char *aMsg, int aLen)
 {
   MOZ_ASSERT(NS_IsMainThread());
+  LOGI("DispatchRILCommand");
+
+  char command[20];
+  strcpy (command, aMsg);
+  if (strcmp(command, ICC_IPC_COMMAND_CARD_PRESENT) == 0) {
+    LOGI("process card present");
+    uint8_t cardPresent = 1;
+
+    nsCOMPtr<nsIRunnable> runnable = new ReplyRunnable((char *)&cardPresent, 1);
+    mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
+  }
+  else {
+    LOGI("unimplemented command: %s", command);
+  }
+
+  nsCOMPtr<nsIRunnable> runnable = new EventRunnable();
+  mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
+}
+
+void
+IccService::Reply(char *buff, int len)
+{
+  MOZ_ASSERT(!NS_IsMainThread());
+  LOGI("Reply");
+  int ret = sendto(mFd, buff, len, 0, (struct sockaddr *)&mFrom, mFromLen);
+  LOGI("send result: %d", ret);
 }
 /*
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(IccService,
