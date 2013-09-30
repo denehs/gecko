@@ -7,6 +7,7 @@
 
 #include <sys/socket.h>
 #include <sys/un.h>
+#include "nsIRadioInterfaceLayer.h"
 #include "nsIIccService.h"
 #include "nsCOMPtr.h"
 #include "nsThread.h"
@@ -15,7 +16,7 @@ namespace mozilla {
 namespace dom {
 namespace icc {
 
-class IccService MOZ_FINAL : public nsIIccService
+class IccService MOZ_FINAL : public nsIIccService, public nsIRilSendWorkerMessageCallback
 {
 public:
   NS_DECL_ISUPPORTS
@@ -27,12 +28,15 @@ public:
   NS_IMETHOD StartListen();
   void WaitForEvent();
   void Reply(char *buff, int len);
+  NS_IMETHOD HandleResponse(const JS::Value & response, bool *_retval);
 
 private:
   IccService();
   ~IccService();
 
+  void Listen();
   void ProcessMessage(char *aMsg, int aLen);
+  void Transmit(nsIRadioInterface *radioInterface, int cla, int command, int channel, int p1, int p2, int p3, const char *data, int dataLen);
 
   nsCOMPtr<nsIThread> mEventThread;
   int mFd;

@@ -3101,12 +3101,27 @@ RadioInterface.prototype = {
 
   sendWorkerMessage: function sendWorkerMessage(rilMessageType, message,
                                                 callback) {
+    debug("sendWorkerMessage: " + rilMessageType + " - " + JSON.stringify(message));
     this.workerMessenger.send(rilMessageType, message, function (response) {
       return callback.handleResponse(response);
     });
   },
 
-  isCardPresent: function isCardPresent() {
+  isCardPresent: function isCardPresent() {/*
+    let message = {
+        channel: 0,
+        apdu: {
+          cla: 0x00,
+          command: 0xA4,
+          p1:0x04,
+          p2:0x00,
+          p3:0x00
+        }
+      };
+    this.sendWorkerMessage("iccExchangeAPDU", message, function(response){
+      debug("result of iccExchangeAPDU");
+      debug(response);
+    });*/
     return this.rilContext.cardState !== RIL.GECKO_CARDSTATE_ABSENT &&
       this.rilContext.cardState !== RIL.GECKO_CARDSTATE_NOT_READY &&
       this.rilContext.cardState !== RIL.GECKO_CARDSTATE_UNKNOWN;

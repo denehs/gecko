@@ -10,7 +10,6 @@
 #include "nsXULAppAPI.h"
 #include "jsapi.h"
 #include "nsCxPusher.h"
-#include "nsIRadioInterfaceLayer.h"
 
 #undef LOG_TAG
 #define LOG_TAG "IccService"
@@ -88,7 +87,7 @@ private:
   int mLen;
 };
 
-NS_IMPL_ISUPPORTS1(IccService, nsIIccService)
+NS_IMPL_ISUPPORTS2(IccService, nsIIccService, nsIRilSendWorkerMessageCallback)
 
 IccService::IccService()
 {
@@ -209,6 +208,20 @@ IccService::DispatchRILCommand(char *aMsg, int aLen)
 
         nsCOMPtr<nsIRunnable> runnable = new ReplyRunnable((char *)&cardPresent, 1);
         mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
+        Listen();
+      }
+      else if (strcmp(command, ICC_IPC_COMMAND_EXCHANGE_APDU) == 0) {
+        LOGI("process exchange apdu");
+        aMsg += strlen(command) + 1;
+        int cla = *(aMsg++);
+        int command = *(aMsg++);
+        int channel = *(aMsg++);
+        int p1 = *(aMsg++);
+        int p2 = *(aMsg++);
+        int p3 = *(aMsg++);
+        int dataLen = *(aMsg++);
+        char *data = aMsg;
+        Transmit(radioInterface, cla, command, channel, p1, p2, p3, data, dataLen);
       }
       else {
         LOGI("unimplemented command: %s", command);
@@ -222,6 +235,12 @@ IccService::DispatchRILCommand(char *aMsg, int aLen)
     LOGI("can't get nsIRadioInterfaceLayer");
   }
 
+}
+
+void
+IccService::Listen()
+{
+  MOZ_ASSERT(NS_IsMainThread());
   nsCOMPtr<nsIRunnable> runnable = new EventRunnable();
   mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
 }
@@ -233,6 +252,62 @@ IccService::Reply(char *buff, int len)
   LOGI("Reply");
   int ret = sendto(mFd, buff, len, 0, (struct sockaddr *)&mFrom, mFromLen);
   LOGI("send result: %d", ret);
+}
+
+
+void
+IccService::Transmit(nsIRadioInterface *radioInterface, int cla, int command, int channel, int p1, int p2, int p3, const char *data, int dataLen)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  LOGI("cla:%d ins:%d ch:%d p1:%d p2:%d p3:%d", cla, command, channel, p1, p2, p3);
+
+  AutoSafeJSContext ctx;
+  JS::Rooted<JSObject*> message(ctx,
+    JS_NewObject(ctx, nullptr, nullptr, nullptr));
+  JS::Rooted<JSObject*> apdu(ctx,
+    JS_NewObject(ctx, nullptr, nullptr, nullptr));
+
+  JS::Value jsCla = JS_NumberValue(cla);
+  JS::Value jsCommand = JS_NumberValue(command);
+  JS::Value jsChannel = JS_NumberValue(channel);
+  JS::Value jsP1 = JS_NumberValue(p1);
+  JS::Value jsP2 = JS_NumberValue(p2);
+  JS::Value jsP3 = JS_NumberValue(p3);
+
+  JS_DefineProperty(ctx, message, "channel", jsChannel, nullptr, nullptr, JSPROP_ENUMERATE);
+  JS_DefineProperty(ctx, apdu, "cla", jsCla, nullptr, nullptr, JSPROP_ENUMERATE);
+  JS_DefineProperty(ctx, apdu, "command", jsCommand, nullptr, nullptr, JSPROP_ENUMERATE);
+  JS_DefineProperty(ctx, apdu, "p1", jsP1, nullptr, nullptr, JSPROP_ENUMERATE);
+  JS_DefineProperty(ctx, apdu, "p2", jsP2, nullptr, nullptr, JSPROP_ENUMERATE);
+  JS_DefineProperty(ctx, apdu, "p3", jsP3, nullptr, nullptr, JSPROP_ENUMERATE);
+  if (dataLen > 0)
+  {
+    JS::Rooted<JSString*> jsData(ctx, JS_NewStringCopyN(ctx, data, dataLen));
+    JS_DefineProperty(ctx, apdu, "data", STRING_TO_JSVAL(jsData), nullptr, nullptr, JSPROP_ENUMERATE);
+  }
+  JS_DefineProperty(ctx, message, "apdu", JS::ObjectValue(*apdu), nullptr, nullptr, JSPROP_ENUMERATE);
+  LOGI("sendWorkerMessage from IccService");
+  nsresult ret = radioInterface->SendWorkerMessage(NS_LITERAL_STRING("iccExchangeAPDU"), JS::ObjectValue(*message), this);
+  LOGI("sendWorkerMessage ret:%x", ret);
+/*
+  char res[] = {0x02, 0x90, 0x00};
+  nsCOMPtr<nsIRunnable> runnable = new ReplyRunnable(res, 3);
+  mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);*/
+}
+
+NS_IMETHODIMP
+IccService::HandleResponse(const JS::Value & response, bool *_retval)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  LOGI("HandleResponse");
+  char res[] = {0x02, 0x90, 0x01};
+  nsCOMPtr<nsIRunnable> runnable = new ReplyRunnable(res, 3);
+  mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
+
+  Listen();
+  
+  *_retval = true;
+  return NS_OK;
 }
 /*
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(IccService,
