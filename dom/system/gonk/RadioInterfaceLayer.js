@@ -3103,6 +3103,7 @@ RadioInterface.prototype = {
                                                 callback) {
     debug("sendWorkerMessage: " + rilMessageType + " - " + JSON.stringify(message));
     this.workerMessenger.send(rilMessageType, message, function (response) {
+      debug("response: " + JSON.stringify(response));
       return callback.handleResponse(response);
     });
   },

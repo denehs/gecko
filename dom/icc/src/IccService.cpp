@@ -289,10 +289,6 @@ IccService::Transmit(nsIRadioInterface *radioInterface, int cla, int command, in
   LOGI("sendWorkerMessage from IccService");
   nsresult ret = radioInterface->SendWorkerMessage(NS_LITERAL_STRING("iccExchangeAPDU"), JS::ObjectValue(*message), this);
   LOGI("sendWorkerMessage ret:%x", ret);
-/*
-  char res[] = {0x02, 0x90, 0x00};
-  nsCOMPtr<nsIRunnable> runnable = new ReplyRunnable(res, 3);
-  mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);*/
 }
 
 NS_IMETHODIMP
@@ -300,6 +296,18 @@ IccService::HandleResponse(const JS::Value & response, bool *_retval)
 {
   MOZ_ASSERT(NS_IsMainThread());
   LOGI("HandleResponse");
+
+
+  AutoSafeJSContext ctx;
+  JS::RootedObject obj(ctx, JSVAL_TO_OBJECT(response));
+  JS::RootedValue rilMessageType(ctx);
+  JS::RootedValue rilRequestError(ctx);
+  JS_LookupProperty(ctx, obj, "rilMessageType", &rilMessageType);
+  JS_LookupProperty(ctx, obj, "rilRequestError", &rilRequestError);
+
+  JSString *str = JS_ValueToString(ctx, rilMessageType);
+  LOGI("    rilMessageType:%s", JS_EncodeString(ctx, str));
+  LOGI("    rilRequestError:%d", rilRequestError.toInt32());
   char res[] = {0x02, 0x90, 0x01};
   nsCOMPtr<nsIRunnable> runnable = new ReplyRunnable(res, 3);
   mEventThread->Dispatch(runnable, nsIEventTarget::DISPATCH_NORMAL);
