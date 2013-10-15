@@ -134,6 +134,19 @@ nsresult TimeZoneSettingObserver::SetTimeZone(const JS::Value &aValue, JSContext
   }
   NS_ConvertUTF16toUTF8 newTimezone(valueStr);
 
+  // hal expect different sign from general notations,
+  // we need to flip it.
+  if (newTimezone.CharAt(3) == '+') {
+    if (!newTimezone.SetCharAt('-', 3)) {
+      return NS_ERROR_FAILURE;
+    }
+  }
+  else if (newTimezone.CharAt(3) == '-') {
+    if (!newTimezone.SetCharAt('+', 3)) {
+      return NS_ERROR_FAILURE;
+    }
+  }
+
   // Set the timezone only when the system timezone is not identical.
   nsCString curTimezone = hal::GetTimezone();
   if (!curTimezone.Equals(newTimezone)) {
