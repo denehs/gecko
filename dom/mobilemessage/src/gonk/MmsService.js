@@ -1271,22 +1271,27 @@ MmsService.prototype = {
                                                                       retrievalMode) {
     intermediate.type = "mms";
     intermediate.delivery = DELIVERY_NOT_DOWNLOADED;
+    // As a receiver, we don't need to care about the delivery status of others.
+    intermediate.deliveryInfo = [{
+      receiver: this.getPhoneNumber(),
+      deliveryStatus: DELIVERY_STATUS_NOT_APPLICABLE }];
+    let deliveryInfo = intermediate.deliveryInfo;
 
     switch(retrievalMode) {
       case RETRIEVAL_MODE_MANUAL:
-        intermediate.deliveryStatus = [DELIVERY_STATUS_MANUAL];
+        deliveryInfo[0].deliveryStatus = DELIVERY_STATUS_MANUAL;
         break;
       case RETRIEVAL_MODE_NEVER:
-        intermediate.deliveryStatus = [DELIVERY_STATUS_REJECTED];
+        deliveryInfo[0].deliveryStatus = DELIVERY_STATUS_REJECTED;
         break;
       case RETRIEVAL_MODE_AUTOMATIC:
-        intermediate.deliveryStatus = [DELIVERY_STATUS_PENDING];
+        deliveryInfo[0].deliveryStatus = DELIVERY_STATUS_PENDING;
         break;
       case RETRIEVAL_MODE_AUTOMATIC_HOME:
         if (gMmsConnection.isVoiceRoaming()) {
-          intermediate.deliveryStatus = [DELIVERY_STATUS_MANUAL];
+          deliveryInfo[0].deliveryStatus = DELIVERY_STATUS_MANUAL;
         } else {
-          intermediate.deliveryStatus = [DELIVERY_STATUS_PENDING];
+          deliveryInfo[0].deliveryStatus = DELIVERY_STATUS_PENDING;
         }
         break;
     }
@@ -1327,7 +1332,7 @@ MmsService.prototype = {
       if (intermediate.headers[type]) {
         if (intermediate.headers[type] instanceof Array) {
           for (let index in intermediate.headers[type]) {
-            savable.receivers.push(intermediate.headers[type][index].address)
+            savable.receivers.push(intermediate.headers[type][index].address);
           }
         } else {
           savable.receivers.push(intermediate.headers[type].address);
@@ -1336,7 +1341,10 @@ MmsService.prototype = {
     }
 
     savable.delivery = DELIVERY_RECEIVED;
-    savable.deliveryStatus = [DELIVERY_STATUS_SUCCESS];
+    // As a receiver, we don't need to care about the delivery status of others.
+    savable.deliveryInfo = [{
+      receiver: this.getPhoneNumber(),
+      deliveryStatus: DELIVERY_STATUS_SUCCESS }];
     for (let field in intermediate.headers) {
       savable.headers[field] = intermediate.headers[field];
     }
@@ -1386,7 +1394,7 @@ MmsService.prototype = {
       id:             aDomMessage.id,
       threadId:       aDomMessage.threadId,
       delivery:       aDomMessage.delivery,
-      deliveryStatus: aDomMessage.deliveryStatus,
+      deliveryInfo:   aDomMessage.deliveryInfo,
       sender:         aDomMessage.sender,
       receivers:      aDomMessage.receivers,
       timestamp:      aDomMessage.timestamp,
