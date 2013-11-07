@@ -2455,7 +2455,7 @@ this.PduHelper = {
         }
         part.content = this.encodeStringContent(part.content, charset);
         UintVar.encode(data, part.content.length);
-      } else if (part.content instanceof Uint8Array) {
+      } else if (part.content.length != null) {
         UintVar.encode(data, part.content.length);
       } else {
         throw new TypeError();

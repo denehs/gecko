@@ -91,6 +91,8 @@ const DELIVERY_STATUS_REJECTED       = "rejected";
 const DELIVERY_STATUS_MANUAL         = "manual";
 const DELIVERY_STATUS_NOT_APPLICABLE = "not-applicable";
 
+const TIME_FOR_FIRST_RETRY = 3000;
+
 const PREF_SEND_RETRY_COUNT =
   Services.prefs.getIntPref("dom.mms.sendRetryCount");
 
@@ -1163,6 +1165,7 @@ SendTransaction.prototype = Object.create(CancellableTransaction.prototype, {
       if (!this.istreamComposed) {
         this.loadBlobs(this.msg.parts, (function () {
           this.istream = MMS.PduHelper.compose(null, this.msg);
+          this.istreamSize = this.istream.available();
           this.istreamComposed = true;
           if (this.isCancelled) {
             this.runCallbackIfValid(_MMS_ERROR_MESSAGE_DELETED, null);
@@ -1183,8 +1186,14 @@ SendTransaction.prototype = Object.create(CancellableTransaction.prototype, {
         if ((MMS.MMS_PDU_ERROR_TRANSIENT_FAILURE == mmsStatus ||
               MMS.MMS_PDU_ERROR_PERMANENT_FAILURE == mmsStatus) &&
             this.retryCount < PREF_SEND_RETRY_COUNT) {
+
+          let retryTime = PREF_SEND_RETRY_INTERVAL;
+          if (this.retryCount == 0) {
+            retryTime = TIME_FOR_FIRST_RETRY;
+          }
+
           if (DEBUG) {
-            debug("Fail to send. Will retry after: " + PREF_SEND_RETRY_INTERVAL);
+            debug("Fail to send. Will retry after: " + retryTime);
           }
 
           if (this.timer == null) {
@@ -1193,9 +1202,18 @@ SendTransaction.prototype = Object.create(CancellableTransaction.prototype, {
 
           this.retryCount++;
 
+          // the input stream may be read in the previous failure request so
+          // we have to re-compose it.
+          if (this.istreamSize == null ||
+              this.istreamSize != this.istream.available()) {
+            this.istream = MMS.PduHelper.compose(null, this.msg);
+            this.istreamSize = this.istream.available();
+          }
+
           this.timer.initWithCallback(this.send.bind(this, retryCallback),
-                                      PREF_SEND_RETRY_INTERVAL,
+                                      retryTime,
                                       Ci.nsITimer.TYPE_ONE_SHOT);
+
           return;
         }
 
