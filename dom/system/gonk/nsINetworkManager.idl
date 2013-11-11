@@ -5,6 +5,21 @@
 #include "nsISupports.idl"
 
 /**
+ * Used to store the parameters for acquireConnection
+ *
+ * @param networkType (required)
+ *        One of the nsINetworkInterface::NETWORK_TYPE_* constants.
+ *
+ * @param serviceId (optional)
+ *        The ID of the RIL service.
+ *
+ */
+dictionary NetworkConnAcquisitionParams {
+    unsigned long serviceId;
+    long networkType;
+};
+
+/**
  * Information about networks that is exposed to network manager API consumers.
  */
 [scriptable, uuid(f4cf9d88-f962-4d29-9baa-fb295dad387b)]
@@ -130,10 +145,38 @@ interface nsISetDhcpServerCallback : nsISupports
   void dhcpServerResult(in jsval error);
 };
 
+[scriptable, function, uuid(07095b5c-f3c1-4277-bb43-5c11261b6e6d)]
+interface nsINetworkConnection : nsISupports {
+  void release();
+  readonly attribute nsINetworkInterface network;
+  readonly attribute long status;
+};
+
+[scriptable, function, uuid(c71e4336-3a2c-11e3-be3a-abc134733c1f)]
+interface nsINetworkConnStatusCallback : nsISupports
+{
+  const long NETWORK_CONNECT_STATUS_UNKNOWN = -1;
+  const long NETWORK_CONNECT_STATUS_CONNECTED = 0;
+  const long NETWORK_CONNECT_STATUS_TIMEOUT = 1;
+  const long NETWORK_CONNECT_STATUS_DISCONNECTED = 2;
+
+  /**
+   * Callback function used to report the connected result.
+   *
+   * @param nsINetworkConnection
+   *        The connection interface which used to disconnect.
+   * @param nsINetworkInterface
+   *        The connected network interface (null if failed to connect).
+   * @param status
+   *        One of the NETWORK_CONNECT_STATUS_* constants.
+   */
+  void notifyConnectResult(in nsINetworkConnection conn);
+};
+
 /**
  * Manage network interfaces.
  */
-[scriptable, uuid(f658c740-26bb-11e3-8224-0800200c9a66)]
+[scriptable, uuid(d92ca898-3a2b-11e3-ad24-cb931e2cb67b)]
 interface nsINetworkManager : nsISupports
 {
   /**
@@ -214,7 +257,7 @@ interface nsINetworkManager : nsISupports
    *        Callback function used to report status to WifiManager.
    */
   void setWifiTethering(in boolean enabled,
-                        in nsINetworkInterface networkInterface,
+                        in nsINetworkInterface network,
                         in jsval config,
                         in nsIWifiTetheringCallback callback);
 
@@ -252,7 +295,8 @@ interface nsINetworkManager : nsISupports
    *        Callback to notify result and provide stats, connectionType
    *        and the date when stats are retrieved
    */
-  void getNetworkInterfaceStats(in DOMString networkName, in nsINetworkStatsCallback callback);
+  void getNetworkInterfaceStats(in DOMString networkName,
+                                in nsINetworkStatsCallback callback);
 
   /**
    * Reload Wifi firmware to specific operation mode.
@@ -268,7 +312,9 @@ interface nsINetworkManager : nsISupports
    * @param callback
    *        Callback to notify Wifi firmware reload result.
    */
-  void setWifiOperationMode(in DOMString interfaceName, in DOMString mode, in nsIWifiOperationModeCallback callback);
+  void setWifiOperationMode(in DOMString interfaceName,
+                            in DOMString mode,
+                            in nsIWifiOperationModeCallback callback);
 
   /**
    * Set http proxy for specific network
@@ -277,4 +323,16 @@ interface nsINetworkManager : nsISupports
    *        Network interface to register.
    */
   void setNetworkProxy(in nsINetworkInterface network);
+
+  /**
+   * Acquire connection to a network.
+   *
+   * @param NetworkConnAcquisitionParams
+   *        Parameters for the network.
+   *
+   * @param callback
+   *        Callback to notify the connect result.
+   */
+  void acquireConnection(in jsval params, // NetworkConnAcquisitionParams
+                         in nsINetworkConnStatusCallback callback);
 };
