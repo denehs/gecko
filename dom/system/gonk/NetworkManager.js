@@ -103,6 +103,17 @@ const DEFAULT_WIFI_DHCPSERVER_ENDIP    = "192.168.1.30";
 
 const MANUAL_PROXY_CONFIGURATION = 1;
 
+const NETWORK_CONNECTION_TIME_OUT = 30000;
+
+const NETWORK_CONNECT_STATUS_CONNECTED =
+  Ci.nsINetworkConnStatusCallback.NETWORK_CONNECT_STATUS_CONNECTED;
+const NETWORK_CONNECT_STATUS_TIMEOUT =
+  Ci.nsINetworkConnStatusCallback.NETWORK_CONNECT_STATUS_TIMEOUT;
+const NETWORK_CONNECT_STATUS_UNKNOWN =
+  Ci.nsINetworkConnStatusCallback.NETWORK_CONNECT_STATUS_UNKNOWN;
+const NETWORK_CONNECT_STATUS_DISCONNECTED =
+  Ci.nsINetworkConnStatusCallback.NETWORK_CONNECT_STATUS_DISCONNECTED;
+
 const DEBUG = false;
 
 function netdResponseType(code) {
@@ -126,12 +137,111 @@ function defineLazyRegExp(obj, name, pattern) {
   });
 }
 
+function NetworkConnection(params) {
+  this.params = params;
+  this.radioInterface = null;
+
+#ifdef MOZ_B2G_RIL
+  if (params.networkType == Ci.nsINetworkInterface.NETWORK_TYPE_MOBILE ||
+      params.networkType == Ci.nsINetworkInterface.NETWORK_TYPE_MOBILE_MMS ||
+      params.networkType == Ci.nsINetworkInterface.NETWORK_TYPE_MOBILE_SUPL) {
+    if (params.serviceId == undefined) {
+      throw Components.Exception("NetworkConnection constructor: serviceId is not valid",
+                                 Cr.NS_ERROR_FAILURE);
+    }
+
+    this.radioInterface = this.mRil.getRadioInterface(params.serviceId);
+  }
+#endif
+}
+NetworkConnection.prototype = {
+  network: null,
+  status: NETWORK_CONNECT_STATUS_UNKNOWN,
+  callbacks: {},
+  connectTimer: Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer),
+
+  addCallback: function addCallback(callback) {
+    let uuidGen = Cc["@mozilla.org/uuid-generator;1"]
+                    .getService(Ci.nsIUUIDGenerator);
+    let uuid = uuidGen.generateUUID();
+    this.callbacks[uuid] = callback;
+    debug("addCallback: added callback with uuid: " + uuid);
+    return uuid;
+  },
+
+  acquire: function acquire(callback) {
+    let uuid = this.addCallback(callback);
+    if (this.status == NETWORK_CONNECT_STATUS_CONNECTED) {
+      debug("acquire: already connected");
+      callback.notifyConnectResult(this.expose(uuid));
+      return;
+    }
+
+    switch (this.params.networkType) {
+      case Ci.nsINetworkInterface.NETWORK_TYPE_MOBILE_MMS:
+        debug("acquire: setup mms data call");
+        this.radioInterface.setupDataCallByType("mms");
+        break;
+      default:
+        debug("acquire: unsupported network type: " + this.params.networkType);
+        break;
+    }
+
+    this.connectTimer.initWithCallback(
+      this.update.bind(this, null, NETWORK_CONNECT_STATUS_TIMEOUT),
+      NETWORK_CONNECTION_TIME_OUT,
+      Ci.nsITimer.TYPE_ONE_SHOT);
+  },
+
+  update: function update(network, status) {
+    if (this.status === status) {
+      return;
+    }
+
+    debug ("update: status: " + this.status + " => " + status);
+    this.network = network;
+
+    this.status = status;
+    this.connectTimer.cancel();
+    for (let uuid in this.callbacks) {
+      this.callbacks[uuid].notifyConnectResult(this.expose(uuid));
+    }
+
+    if (status == NETWORK_CONNECT_STATUS_DISCONNECTED) {
+      this.callbacks = {};
+    }
+  },
+
+  expose: function expose(uuid) {
+    return {
+      network: this.network,
+      status: this.status,
+      release: function release() {
+        if (this.callbacks[uuid]) {
+          delete this.callbacks[uuid];
+        } else {
+          throw Components.Exception("expose: connection is already released.",
+                                     Cr.NS_ERROR_FAILURE);
+        }
+
+        let refCount = Object.keys(this.callbacks).length;
+        debug("release: refCount = " + refCount);
+        if (refCount == 0) {
+          this.radioInterface.deactivateDataCallByType("mms");
+        }
+      }.bind(this),
+      QueryInterface: Ci.nsINetworkConnection
+    };
+  }
+}
+
 /**
  * This component watches for network interfaces changing state and then
  * adjusts routes etc. accordingly.
  */
 function NetworkManager() {
   this.networkInterfaces = {};
+  this.networkConnections = [];
   Services.obs.addObserver(this, TOPIC_INTERFACE_STATE_CHANGED, true);
 #ifdef MOZ_B2G_RIL
   Services.obs.addObserver(this, TOPIC_INTERFACE_REGISTERED, true);
@@ -242,6 +352,30 @@ NetworkManager.prototype = {
                 network.type == Ci.nsINetworkInterface.NETWORK_TYPE_MOBILE_SUPL) {
               this.removeHostRoutes(network.name);
               this.addHostRoute(network);
+              let rilNetwork =
+                subject.QueryInterface(Ci.nsIRilNetworkInterface);
+
+              for (let i = 0; i < this.networkConnections.length; i++) {
+                let networkConn = this.networkConnections[i];
+
+                switch (networkConn.params.networkType) {
+                  case Ci.nsINetworkInterface.NETWORK_TYPE_MOBILE_MMS:
+                    if (networkConn.params.serviceId != rilNetwork.serviceId ||
+                        networkConn.status == NETWORK_CONNECT_STATUS_CONNECTED) {
+                      break;
+                    }
+
+                    if (this.mRil.getRadioInterface(rilNetwork.serviceId).
+                        getDataCallStateByType("mms") ==
+                          Ci.nsINetworkInterface.NETWORK_STATE_CONNECTED) {
+                        networkConn.update(rilNetwork, NETWORK_CONNECT_STATUS_CONNECTED);
+                    }
+                    break;
+                  default:
+                    // TODO: handle other types
+                    break;
+                }
+              }
             }
             // Add extra host route. For example, mms proxy or mmsc.
             this.setExtraHostRoute(network);
@@ -264,6 +398,32 @@ NetworkManager.prototype = {
             // Probing the public network accessibility after routing table is ready
             CaptivePortalDetectionHelper
               .notify(CaptivePortalDetectionHelper.EVENT_CONNECT, this.active);
+            break;
+          case Ci.nsINetworkInterface.NETWORK_STATE_DISCONNECTING:
+            // Work around because NETWORK_STATE_DISCONNECTED is not working.
+
+            for (let i = 0; i < this.networkConnections.length; i++) {
+              let networkConn = this.networkConnections[i];
+              switch (networkConn.params.networkType) {
+#ifdef MOZ_B2G_RIL
+                case Ci.nsINetworkInterface.NETWORK_TYPE_MOBILE_MMS:
+                  if (networkConn.params.serviceId != network.serviceId ||
+                      networkConn.status != NETWORK_CONNECT_STATUS_CONNECTED) {
+                    break;
+                  }
+
+                  if (this.mRil.getRadioInterface(network.serviceId).
+                      getDataCallStateByType("mms") !=
+                        Ci.nsINetworkInterface.NETWORK_STATE_CONNECTED) {
+                      networkConn.update(network, NETWORK_CONNECT_STATUS_DISCONNECTED);
+                  }
+                  break;
+#endif
+                default:
+                  // TODO: handle other types
+                  break;
+              }
+            }
             break;
           case Ci.nsINetworkInterface.NETWORK_STATE_DISCONNECTED:
 #ifdef MOZ_B2G_RIL
@@ -820,6 +980,24 @@ NetworkManager.prototype = {
     }
   },
 
+  acquireConnection: function acquireConnection(params, callback) {
+    let networkConn;
+    for (let i = 0; i < this.networkConnections.length; i++) {
+      let paramCandidate = this.networkConnections[i].params;
+      if (paramCandidate.networkType === params.networkType &&
+          paramCandidate.serviceId === params.serviceId) {
+        networkConn = this.networkConnections[i];
+        break;
+      }
+    }
+
+    if (!networkConn) {
+      networkConn = new NetworkConnection(params);
+      this.networkConnections.push(networkConn);
+    }
+
+    networkConn.acquire(callback);
+  },
   // nsISettingsServiceCallback
 
   tetheringSettings: {},
@@ -1310,6 +1488,9 @@ let CaptivePortalDetectionHelper = (function() {
 
 #ifdef MOZ_B2G_RIL
 XPCOMUtils.defineLazyServiceGetter(NetworkManager.prototype, "mRil",
+                                   "@mozilla.org/ril;1",
+                                   "nsIRadioInterfaceLayer");
+XPCOMUtils.defineLazyServiceGetter(NetworkConnection.prototype, "mRil",
                                    "@mozilla.org/ril;1",
                                    "nsIRadioInterfaceLayer");
 #endif
